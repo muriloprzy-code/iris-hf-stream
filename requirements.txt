@@ -1,0 +1,2 @@
+# Pinned. Bump deliberately and re-run the test suite plus a real load inside the container.
+datasets==5.1.0

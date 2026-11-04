@@ -1,0 +1,2 @@
+# Files run inside the Linux container must keep LF line endings.
+* text=auto eol=lf

@@ -1,0 +1,11 @@
+// Run at image build time: iris session IRIS < iris.script
+zn "%SYS"
+// Development image: keep the default users usable.
+do ##class(Security.Users).UnExpireUserPasswords("*")
+
+zn "USER"
+// Compile the HF package (HF.Loader, HF.Benchmark).
+set sc = $system.OBJ.LoadDir("/opt/irisapp/src", "ck", , 1)
+if 'sc { do $system.Status.DisplayError(sc) do $system.Process.Terminate($job, 1) }
+
+halt

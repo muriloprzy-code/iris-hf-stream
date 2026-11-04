@@ -1,0 +1,16 @@
+services:
+  iris:
+    build: .
+    container_name: iris-hf-stream
+    ports:
+      - "1972:1972"     # super server (JDBC / ODBC)
+      - "52773:52773"   # web server / Management Portal
+    environment:
+      # Optional: access token for private or gated Hugging Face datasets.
+      - HF_TOKEN=${HF_TOKEN:-}
+    # Start IRIS through the official launcher. The intersystemsdc image's own
+    # entrypoint runs a post-start hook (irissqlcli -> iris.dbapi.connect) that
+    # fails on the 2026.1 image and shuts IRIS down; the USER namespace it would
+    # create already exists, so the hook is not needed.
+    entrypoint: ["/iris-main"]
+    command: --check-caps false

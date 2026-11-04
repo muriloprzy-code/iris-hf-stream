@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+  <Document name="iris-hf-stream.ZPM">
+    <Module>
+      <Name>iris-hf-stream</Name>
+      <Version>0.1.0</Version>
+      <Description>Load a Hugging Face dataset into an InterSystems IRIS table with one line of SQL or ObjectScript. Streams only the rows you ask for and inserts them in batches.</Description>
+      <Keywords>huggingface dataset streaming embedded python sql</Keywords>
+      <Packaging>module</Packaging>
+      <SourcesRoot>src</SourcesRoot>
+      <Resource Name="HF.PKG"/>
+      <!-- The embedded Python package. Its dependencies (requirements.txt) must be installed
+           with irispython and pip, targeting the install-dir/mgr/python directory
+           (see the README and the Dockerfile for the exact command). -->
+      <FileCopy Name="python/hfstream/" Target="${mgrdir}python/hfstream/"/>
+    </Module>
+  </Document>
+</Export>
