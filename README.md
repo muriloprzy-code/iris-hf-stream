@@ -1,5 +1,7 @@
 # iris-hf-stream
 
+![iris-hf-stream: Hugging Face datasets to InterSystems IRIS tables, in one line](docs/cover.png)
+
 [![tests](https://github.com/muriloprzy-code/iris-hf-stream/actions/workflows/tests.yml/badge.svg)](https://github.com/muriloprzy-code/iris-hf-stream/actions/workflows/tests.yml)
 
 Load a [Hugging Face](https://huggingface.co/datasets) dataset into an InterSystems IRIS table with **one line**, from SQL or from ObjectScript. It streams the dataset, so it only downloads the rows you ask for, and it inserts them in batches. It can also add a `VECTOR` column of text embeddings, so the data is ready for semantic search in IRIS SQL.
