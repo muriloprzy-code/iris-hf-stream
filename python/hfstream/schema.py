@@ -14,7 +14,7 @@ import math
 import numbers
 import re
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Sequence
 
 from .errors import SchemaMismatchError, ValueTooLongError
@@ -24,6 +24,10 @@ INT64_MAX = 2**63 - 1
 
 # VARCHAR sizes we are willing to pick. Anything that needs more becomes LONGVARCHAR.
 VARCHAR_BUCKETS = (32, 64, 128, 256, 512, 1024)
+# Sizes used when a later row does not fit and the column is widened with ALTER TABLE
+# (IRIS cannot turn a VARCHAR that holds data into a LONGVARCHAR stream). The last one
+# is the longest string IRIS can hold.
+WIDEN_BUCKETS = VARCHAR_BUCKETS + (4096, 16384, 65536, 262144, 1048576, 3641144)
 # Later rows may be longer than the sampled ones, so leave room.
 HEADROOM = 4
 
@@ -58,9 +62,35 @@ _RESERVED = frozenset(
 class Column:
     name: str  # SQL column name (sanitized)
     source: str  # key in the dataset row
-    kind: str  # bool | int | float | datetime | date | str | json | mixed
+    kind: str  # bool | int | float | datetime | date | str | json | mixed | vector
     sql_type: str
     max_len: int | None = None  # only for VARCHAR(n)
+    dimension: int | None = None  # only for VECTOR columns
+
+
+def vector_column(name: str, source: str, dimension: int) -> Column:
+    return Column(name, source, "vector", f"VECTOR(FLOAT, {dimension})", dimension=dimension)
+
+
+def widen(col: Column, value: Any) -> Column | None:
+    """A wider version of ``col`` that can hold ``value``, or None if there is none.
+
+    Two cases are handled, the ones that come up when the first rows were not
+    representative: a string longer than the VARCHAR(n) picked from the sample, and a
+    float arriving in a column of integers.
+    """
+    if col.kind == "int" and isinstance(value, numbers.Real) and not isinstance(value, bool):
+        return replace(col, kind="float", sql_type="DOUBLE")
+    if col.max_len is not None and value is not None:
+        length = len(_text(value))
+        for size in WIDEN_BUCKETS:
+            if size >= min(length * HEADROOM, WIDEN_BUCKETS[-1]) and size >= length:
+                return replace(col, sql_type=f"VARCHAR({size})", max_len=size)
+    return None
+
+
+def is_reserved(name: str) -> bool:
+    return name.lower() in _RESERVED
 
 
 def sanitize_identifier(name: Any, used: set[str]) -> str:
@@ -183,6 +213,8 @@ def encode_value(col: Column, value: Any) -> Any:
     if value is None:
         return None
     kind = col.kind
+    if kind == "vector":
+        return value  # already '[x,y,...]' text, see embed.py
     if kind == "bool":
         if isinstance(value, bool):
             return 1 if value else 0
@@ -219,7 +251,7 @@ def encode_value(col: Column, value: Any) -> Any:
         raise ValueTooLongError(
             f"column {col.name}: value with {len(text)} characters does not fit "
             f"{col.sql_type} (sized from the sampled rows). "
-            f"Increase the sample size so the column is typed as LONGVARCHAR."
+            'Increase "sample_size" in the options so the column is typed as LONGVARCHAR.'
         )
     return text
 
@@ -233,7 +265,11 @@ def create_table_sql(target: str, columns: Sequence[Column]) -> str:
     return f"CREATE TABLE {target} (\n  {body}\n)"
 
 
-def insert_sql(target: str, columns: Sequence[Column]) -> str:
+def insert_sql(target: str, columns: Sequence[Column], vector_placeholder=None) -> str:
+    """INSERT with one marker per column; VECTOR columns use ``vector_placeholder(dim)``."""
     names = ", ".join(c.name for c in columns)
-    marks = ", ".join("?" for _ in columns)
+    marks = ", ".join(
+        vector_placeholder(c.dimension) if c.kind == "vector" and vector_placeholder else "?"
+        for c in columns
+    )
     return f"INSERT INTO {target} ({names}) VALUES ({marks})"

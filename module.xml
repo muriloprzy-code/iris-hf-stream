@@ -3,9 +3,9 @@
   <Document name="iris-hf-stream.ZPM">
     <Module>
       <Name>iris-hf-stream</Name>
-      <Version>0.1.0</Version>
-      <Description>Load a Hugging Face dataset into an InterSystems IRIS table with one line of SQL or ObjectScript. Streams only the rows you ask for and inserts them in batches.</Description>
-      <Keywords>huggingface dataset streaming embedded python sql</Keywords>
+      <Version>0.2.0</Version>
+      <Description>Load a Hugging Face dataset into an InterSystems IRIS table with one line of SQL or ObjectScript. Streams only the rows you ask for, inserts them in batches, and can add VECTOR embeddings for semantic search.</Description>
+      <Keywords>huggingface dataset streaming embedded python sql vector embeddings ai</Keywords>
       <Packaging>module</Packaging>
       <SourcesRoot>src</SourcesRoot>
       <Resource Name="HF.PKG"/>

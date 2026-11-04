@@ -107,6 +107,69 @@ def _with_label_names(
         yield row
 
 
+def select(stream: Iterable[dict], columns: list[str] | None) -> Iterable[dict]:
+    """Keep only ``columns``. With dataset features, unknown names are an error and
+    only the selected columns are read from the parquet files."""
+    features = getattr(stream, "features", None)
+    if not columns or not features:
+        return stream
+    unknown = [c for c in columns if c not in features]
+    if unknown:
+        from .errors import ValidationError
+
+        raise ValidationError(
+            f"unknown column(s) {', '.join(unknown)}; the dataset has: {', '.join(features)}"
+        )
+    if hasattr(stream, "select_columns"):
+        return stream.select_columns(list(columns))
+    return stream
+
+
+def split_names(
+    dataset: str, config: str | None = None, token: str | None = None, **kwargs: Any
+) -> list[str]:
+    """Split names of a dataset (``kwargs`` such as ``data_files`` go to the builder)."""
+    from datasets import get_dataset_split_names
+
+    return list(get_dataset_split_names(dataset, config_name=config or None, token=token, **kwargs))
+
+
+def split_info(dataset: str, config: str | None = None, token: str | None = None) -> dict:
+    """Row counts per split and sizes, from the dataset metadata (no rows downloaded).
+
+    Returns {} when the Hub does not publish them for this dataset.
+    """
+    try:
+        from datasets import load_dataset_builder
+
+        info = load_dataset_builder(dataset, config or None, token=token).info
+    except Exception:  # noqa: BLE001 - metadata is optional, the sample is what matters
+        return {}
+    result: dict[str, Any] = {}
+    if info.splits:
+        result["splits"] = {name: s.num_examples for name, s in info.splits.items()}
+    if info.download_size:
+        result["download_bytes"] = int(info.download_size)
+    if info.dataset_size:
+        result["dataset_bytes"] = int(info.dataset_size)
+    return result
+
+
+def search(term: str, limit: int = 10, token: str | None = None) -> list[dict]:
+    """Datasets on the Hub matching ``term``, most downloaded first."""
+    from huggingface_hub import HfApi
+
+    found = HfApi(token=token).list_datasets(search=term, sort="downloads", limit=int(limit))
+    return [
+        {
+            "id": d.id,
+            "downloads": getattr(d, "downloads", None),
+            "likes": getattr(d, "likes", None),
+        }
+        for d in found
+    ]
+
+
 def _short_list(text: str, limit: int = 15) -> str:
     items = re.findall(r"'([^']*)'", text)
     if not items:

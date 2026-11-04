@@ -1,2 +1,4 @@
 # Pinned. Bump deliberately and re-run the test suite plus a real load inside the container.
 datasets==5.1.0
+# Static text embeddings for the "embed" option (numpy only, no PyTorch).
+model2vec==0.10.0

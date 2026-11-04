@@ -8,8 +8,8 @@ from hfstream.errors import (
     DatabaseError,
     DownloadError,
     EmptyDatasetError,
+    SchemaMismatchError,
     ValidationError,
-    ValueTooLongError,
 )
 from hfstream.loader import load_to_iris, run_info, run_load
 from sqlite_backend import SqliteBackend
@@ -96,15 +96,32 @@ def test_download_failure_midway_drops_the_table(db, stream):
     assert not db.table_exists("Demo", "T")
 
 
-def test_value_longer_than_sampled_column_drops_the_table(db, stream):
+def test_value_longer_than_sampled_column_widens_the_column(db, stream):
     def rows():
-        yield {"text": "short"}
-        yield {"text": "short"}
-        yield {"text": "x" * 500}
+        yield {"text": "short", "n": 1}
+        yield {"text": "short", "n": 2}
+        yield {"text": "x" * 500, "n": 2.5}  # longer text, and a float among integers
 
     stream(rows)
-    with pytest.raises(ValueTooLongError):
-        run_load("owner/ds", "train", "Demo.T", sample_size=2, backend=db)
+    result = run_load("owner/ds", "train", "Demo.T", sample_size=2, backend=db)
+    assert result["rows_loaded"] == 3
+    assert result["widened_columns"] == [
+        {"name": "text", "from": "VARCHAR(32)", "to": "VARCHAR(4096)"},
+        {"name": "n", "from": "BIGINT", "to": "DOUBLE"},
+    ]
+    assert db.altered == [("Demo.T", "text", "VARCHAR(4096)"), ("Demo.T", "n", "DOUBLE")]
+    assert {c["name"]: c["type"] for c in result["columns"]} == {"text": "VARCHAR(4096)", "n": "DOUBLE"}
+    assert db.query("SELECT length(text), n FROM Demo.T ORDER BY rowid")[-1] == (500, 2.5)
+
+
+def test_value_that_cannot_be_widened_drops_the_table(db, stream):
+    def rows():
+        yield {"n": 1}
+        yield {"n": "not a number"}
+
+    stream(rows)
+    with pytest.raises(SchemaMismatchError):
+        run_load("owner/ds", "train", "Demo.T", sample_size=1, backend=db)
     assert not db.table_exists("Demo", "T")
 
 
@@ -162,6 +179,8 @@ def test_data_roundtrip(db, stream):
         {"target": "1Demo.T"},
         {"target": "a.b.c"},
         {"target": ""},
+        {"target": "Demo.All"},
+        {"target": "User.T"},
         {"dataset": "../etc/passwd"},
         {"dataset": "a b"},
         {"dataset": ""},

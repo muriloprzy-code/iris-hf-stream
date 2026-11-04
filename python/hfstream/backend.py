@@ -34,6 +34,21 @@ class Backend:
     def drop_table(self, qualified_name: str) -> None:
         self.execute(f"DROP TABLE {qualified_name}")
 
+    def table_columns(self, schema: str, table: str) -> list[str]:
+        """Column names of an existing table, in lower case."""
+        raise NotImplementedError
+
+    def alter_column(self, qualified_name: str, column: str, sql_type: str) -> None:
+        self.execute(f"ALTER TABLE {qualified_name} ALTER COLUMN {column} {sql_type}")
+
+    def rename_table(self, qualified_name: str, new_table: str) -> None:
+        """Rename ``schema.table`` to ``schema.new_table`` (same schema)."""
+        self.execute(f"ALTER TABLE {qualified_name} RENAME {new_table}")
+
+    def vector_placeholder(self, dimension: int) -> str:
+        """Parameter marker for a VECTOR column; the value is bound as '[x,y,...]' text."""
+        return f"TO_VECTOR(?, FLOAT, {dimension})"
+
 
 class IrisBackend(Backend):
     """IRIS through Embedded Python (``iris.sql``)."""
@@ -80,6 +95,16 @@ class IrisBackend(Backend):
         for _ in rs:
             return True
         return False
+
+    def table_columns(self, schema: str, table: str) -> list[str]:
+        rs = self._iris.sql.exec(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS "
+            "WHERE UPPER(TABLE_SCHEMA) = UPPER(?) AND UPPER(TABLE_NAME) = UPPER(?) "
+            "ORDER BY ORDINAL_POSITION",
+            schema,
+            table,
+        )
+        return [str(row[0]).lower() for row in rs]
 
     def execute(self, sql: str, *params) -> None:
         self._check(self._iris.sql.exec(sql, *map(self._param, params)))

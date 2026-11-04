@@ -7,5 +7,8 @@ zn "USER"
 // Compile the HF package (HF.Loader, HF.Benchmark).
 set sc = $system.OBJ.LoadDir("/opt/irisapp/src", "ck", , 1)
 if 'sc { do $system.Status.DisplayError(sc) do $system.Process.Terminate($job, 1) }
+// ObjectScript unit tests (not part of the IPM module): do ##class(HFTest.Runner).Run()
+set sc = $system.OBJ.LoadDir("/opt/irisapp/tests-iris", "ck", , 1)
+if 'sc { do $system.Status.DisplayError(sc) do $system.Process.Terminate($job, 1) }
 
 halt

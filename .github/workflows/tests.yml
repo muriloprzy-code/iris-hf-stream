@@ -1,0 +1,45 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Python logic (SQLite, no IRIS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+      - name: Run pytest
+        run: pytest -q
+
+  iris:
+    name: Inside IRIS (Docker, real Hugging Face datasets)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image and start IRIS
+        run: docker compose up -d --build
+      - name: Wait until IRIS is healthy
+        run: |
+          for i in $(seq 1 60); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' iris-hf-stream || true)
+            [ "$status" = "healthy" ] && exit 0
+            sleep 5
+          done
+          docker compose logs
+          exit 1
+      - name: Run the ObjectScript unit tests
+        run: |
+          printf 'do ##class(HFTest.Runner).Run()\nhalt\n' \
+            | docker compose exec -T iris iris session IRIS -U USER | tee result.txt
+          grep -q "ALL TESTS PASSED" result.txt
+      - name: Show IRIS logs on failure
+        if: failure()
+        run: docker compose logs --tail 200

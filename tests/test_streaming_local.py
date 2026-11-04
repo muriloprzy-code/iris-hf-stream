@@ -29,10 +29,10 @@ def jsonl(tmp_path):
 
 def test_streaming_with_take(jsonl, db):
     result = run_load(
-        "json", "train", "Demo.Local", limit=100, load_kwargs={"data_files": jsonl}, backend=db
+        "json", "train", "Demo.LocalFile", limit=100, load_kwargs={"data_files": jsonl}, backend=db
     )
     assert result["rows_loaded"] == 100
-    assert db.count("Demo.Local") == 100
+    assert db.count("Demo.LocalFile") == 100
     types = {c["name"]: c["type"] for c in result["columns"]}
     assert types["id"] == "BIGINT" and types["tags"] == "LONGVARCHAR"
 
@@ -42,12 +42,12 @@ def test_unknown_split_is_a_download_error(jsonl, db):
         run_load(
             "json",
             "validation",
-            "Demo.Local",
+            "Demo.LocalFile",
             limit=10,
             load_kwargs={"data_files": jsonl},
             backend=db,
         )
-    assert not db.table_exists("Demo", "Local")
+    assert not db.table_exists("Demo", "LocalFile")
 
 
 def test_info_on_local_file(jsonl):
@@ -102,3 +102,34 @@ def test_image_columns_are_skipped_without_decoding(tmp_path, db):
     assert result["skipped_columns"] == ["image"]
     assert [c["name"] for c in result["columns"]] == ["caption"]
     assert db.count("Demo.Pics") == 3
+
+
+@pytest.fixture
+def two_splits(tmp_path):
+    files = {}
+    for split, n in (("train", 30), ("test", 12)):
+        path = tmp_path / f"{split}.jsonl"
+        path.write_text("".join(json.dumps({"id": i, "text": f"{split} {i}"}) + "\n" for i in range(n)))
+        files[split] = str(path)
+    return files
+
+
+def test_all_splits_with_the_real_library(two_splits, db):
+    result = run_load(
+        "json", "all", "Demo.Splits", limit=10, load_kwargs={"data_files": two_splits}, backend=db
+    )
+    assert result["rows_per_split"] == {"train": 10, "test": 10}
+    assert db.query("SELECT DISTINCT hf_split FROM Demo.Splits ORDER BY 1") == [("test",), ("train",)]
+
+
+def test_columns_are_selected_before_reading(two_splits, db):
+    result = run_load(
+        "json",
+        "test",
+        "Demo.Cols",
+        load_kwargs={"data_files": two_splits},
+        backend=db,
+        options={"columns": ["text"]},
+    )
+    assert [c["name"] for c in result["columns"]] == ["text"]
+    assert result["rows_loaded"] == 12
