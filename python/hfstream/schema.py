@@ -3,6 +3,7 @@
 The first rows of the stream are sampled to decide the SQL type of each column.
 Strings get a VARCHAR(n) sized from the longest sampled value (with headroom) or
 LONGVARCHAR when the text is long. Lists and dicts are stored as JSON text.
+Columns that only hold raw bytes are left out (see ``infer_schema``).
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import json
 import math
 import numbers
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Sequence
 
@@ -62,8 +64,13 @@ class Column:
 
 
 def sanitize_identifier(name: Any, used: set[str]) -> str:
-    """Turn a dataset column name into a safe, unique SQL identifier."""
-    base = re.sub(r"[^0-9A-Za-z_]", "_", str(name)).strip("_")[:100] or "col"
+    """Turn a dataset column name into a safe, unique SQL identifier.
+
+    Accents are removed ("preço" -> "preco"), any other character that is not a
+    letter, digit or underscore becomes "_".
+    """
+    text = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("ascii")
+    base = re.sub(r"[^0-9A-Za-z_]", "_", text).strip("_")[:100] or "col"
     if not base[0].isalpha():
         base = "c_" + base
     if base.lower() in _RESERVED:
@@ -89,7 +96,9 @@ def _category(value: Any) -> str:
         return "datetime"
     if isinstance(value, dt.date):
         return "date"
-    return "json"  # list, dict, bytes, anything else
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return "binary"
+    return "json"  # list, dict, anything else
 
 
 def _varchar_for(max_len: int) -> tuple[str, int | None]:
@@ -121,8 +130,12 @@ def _make_column(name: str, source: str, cats: set[str], max_len: int) -> Column
     return Column(name, source, "mixed", "LONGVARCHAR")
 
 
-def infer_schema(rows: Sequence[dict]) -> list[Column]:
-    """Infer the columns from a sample of rows (dicts)."""
+def infer_schema(rows: Sequence[dict], skipped: list | None = None) -> list[Column]:
+    """Infer the columns from a sample of rows (dicts).
+
+    Columns whose sampled values are all raw bytes (images, audio, ...) cannot be
+    stored meaningfully and are left out; their names are appended to ``skipped``.
+    """
     order: list[Any] = []
     seen: set[Any] = set()
     for row in rows:
@@ -144,6 +157,10 @@ def infer_schema(rows: Sequence[dict]) -> list[Column]:
             cats.add(cat)
             if cat == "str":
                 max_len = max(max_len, len(value))
+        if cats == {"binary"}:
+            if skipped is not None:
+                skipped.append(str(key))
+            continue
         columns.append(_make_column(sanitize_identifier(key, used), key, cats, max_len))
     return columns
 
@@ -195,6 +212,8 @@ def encode_value(col: Column, value: Any) -> Any:
             return value.isoformat()
         raise _mismatch(col, value)
 
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raise _mismatch(col, value)
     text = _text(value)  # str, json, mixed
     if col.max_len is not None and len(text) > col.max_len:
         raise ValueTooLongError(

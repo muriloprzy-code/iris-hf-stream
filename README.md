@@ -87,17 +87,21 @@ You can check what table a dataset would produce without writing anything. `Info
 USER> write ##class(HF.Loader).Info("stanfordnlp/imdb", "train"), !
 {"status": "ok", "dataset": "stanfordnlp/imdb", "split": "train", "sampled_rows": 1000,
  "columns": [{"name": "text", "source": "text", "type": "LONGVARCHAR"},
-             {"name": "label", "source": "label", "type": "BIGINT"}]}
+             {"name": "label", "source": "label", "type": "BIGINT"},
+             {"name": "label_name", "source": "label_name", "type": "VARCHAR(32)"}]}
 ```
 
 The movie reviews are long (up to about 6000 characters), so `text` becomes `LONGVARCHAR` instead of a fixed `VARCHAR`. The integer `label` becomes `BIGINT`.
+
+`label_name` is not in the original data. The dataset's metadata says `label` is a class label with the names `neg` and `pos`, so the loader adds a readable text column next to the number. This happens for every `ClassLabel` column, so you can query `WHERE label_name = 'pos'` instead of remembering what `1` means.
 
 ### 3. Load 1000 rows with one line of ObjectScript
 
 ```objectscript
 USER> write ##class(HF.Loader).Load("stanfordnlp/imdb", "train", "Demo.Imdb", 1000), !
-{"status": "ok", "table": "Demo.Imdb", "rows_loaded": 1000, "seconds": 2.942,
- "columns": [{"name": "text", "type": "LONGVARCHAR"}, {"name": "label", "type": "BIGINT"}]}
+{"status": "ok", "table": "Demo.Imdb", "rows_loaded": 1000, "seconds": 3.061,
+ "columns": [{"name": "text", "type": "LONGVARCHAR"}, {"name": "label", "type": "BIGINT"},
+             {"name": "label_name", "type": "VARCHAR(32)"}]}
 ```
 
 That one call did the following:
@@ -112,10 +116,10 @@ SELECT AVG(CHARACTER_LENGTH(text)) AS avg_chars, MAX(CHARACTER_LENGTH(text)) AS 
 -- avg_chars  max_chars
 -- 1311.289   6103
 
-SELECT TOP 3 label, SUBSTRING(text, 1, 70) AS preview FROM Demo.Imdb
--- 0  I rented I AM CURIOUS-YELLOW from my video store because of all the co
--- 0  "I Am Curious: Yellow" is a risible and pretentious steaming pile. It
--- 0  If only to avoid making this type of film in the future. This film is
+SELECT TOP 3 label, label_name, SUBSTRING(text, 1, 50) AS preview FROM Demo.Imdb
+-- 0  neg  I rented I AM CURIOUS-YELLOW from my video store b
+-- 0  neg  "I Am Curious: Yellow" is a risible and pretentiou
+-- 0  neg  If only to avoid making this type of film in the f
 ```
 
 `LONGVARCHAR` columns are stored as character streams. Use `SUBSTRING(column, 1, n)` when you want the text itself in a result set, for example from Embedded Python, where a plain `SELECT` returns the stream reference.
@@ -129,11 +133,14 @@ The same loader is exposed as a SQL stored procedure. That means it can be calle
 ```sql
 CALL HF.LoadDataset('stanfordnlp/imdb', 'train', 'Demo.ImdbFull', 0)
 
-SELECT label, COUNT(*) AS reviews FROM Demo.ImdbFull GROUP BY label
--- label  reviews
--- 0      12500
--- 1      12500
+SELECT %EXACT(label_name) AS label_name, COUNT(*) AS reviews
+FROM Demo.ImdbFull GROUP BY %EXACT(label_name)
+-- label_name  reviews
+-- neg         12500
+-- pos         12500
 ```
+
+`%EXACT` keeps the original case. Without it, IRIS groups `VARCHAR` values case-insensitively and shows them in upper case (`NEG`, `POS`).
 
 With `limit = 0`, all 25,000 reviews were loaded in about 8 seconds, download included (same test machine as the [Benchmark](#benchmark)). To keep a default from SQL, pass `''` (for example `CALL HF.LoadDataset('stanfordnlp/imdb', '', 'Demo.T', 100)` uses the `train` split).
 
@@ -180,7 +187,25 @@ FROM Demo.Squad s,
 -- The Basilica of the Sacred heart at Notre Dame is beside to which structure?  the Main Building
 ```
 
-**Column names are made SQL-safe.** `lhoestq/demo1` has a column called `date`, which is a reserved word in IRIS SQL. The loader renames it to `date_`, so you can query it without quoting. Spaces and other symbols become `_`, and duplicate names get a numeric suffix.
+**Images and audio are left out, and reported.** A SQL column cannot hold a picture in a useful way, so media columns (`Image`, `Audio`, `Video`, `Pdf`) and raw binary columns are dropped before any row is read. The images are never decoded, so Pillow is not needed. The JSON result lists what was left out. In MNIST, that keeps the digit label:
+
+```objectscript
+USER> write ##class(HF.Loader).Load("ylecun/mnist", "train", "Demo.Mnist", 100), !
+{"status": "ok", "table": "Demo.Mnist", "rows_loaded": 100, "seconds": 4.782,
+ "columns": [{"name": "label", "type": "BIGINT"}, {"name": "label_name", "type": "VARCHAR(32)"}],
+ "skipped_columns": ["image"]}
+```
+
+```sql
+SELECT label_name, COUNT(*) AS n FROM Demo.Mnist GROUP BY label_name ORDER BY label_name
+-- label_name  n
+-- 0           13
+-- 1           14
+-- 2           6
+-- ...
+```
+
+**Column names are made SQL-safe.** `lhoestq/demo1` has a column called `date`, which is a reserved word in IRIS SQL. The loader renames it to `date_`, so you can query it without quoting. Accents are removed (`preço` → `preco`), spaces and other symbols become `_`, and duplicate names get a numeric suffix.
 
 ```objectscript
 USER> write ##class(HF.Loader).Load("lhoestq/demo1", "train", "Demo.Reviews", 0), !
@@ -201,26 +226,43 @@ SELECT TOP 3 star, date_, package_name FROM Demo.Reviews
 
 ```objectscript
 USER> write ##class(HF.Loader).Load("nyu-mll/glue", "validation", "Demo.Sst2", 200, "sst2"), !
-{"status": "ok", "table": "Demo.Sst2", "rows_loaded": 200, "seconds": 6.14,
+{"status": "ok", "table": "Demo.Sst2", "rows_loaded": 200, "seconds": 2.159,
  "columns": [{"name": "sentence", "type": "VARCHAR(1024)"}, {"name": "label", "type": "BIGINT"},
-             {"name": "idx", "type": "BIGINT"}]}
+             {"name": "idx", "type": "BIGINT"}, {"name": "label_name", "type": "VARCHAR(32)"}]}
 ```
+
+```sql
+SELECT TOP 2 label, label_name, sentence FROM Demo.Sst2
+-- 1  positive  it 's a charming and often affecting journey .
+-- 0  negative  unflinchingly bleak and desperate
+```
+
+If you forget the configuration, the error message lists the available ones (see the next step).
 
 Missing values (`None` in Python) are stored as SQL `NULL` in every column type, and empty strings stay empty strings.
 
 ### 6. Errors come back as JSON, never as exceptions
 
-`Load` never throws, so it is safe to call from SQL, from a production or from a scheduled task. Every problem is reported with a `code` and a readable message:
+`Load` never throws, so it is safe to call from SQL, from a production or from a scheduled task. Every problem is reported with a `code` and a message that says what to do next. The usual mistakes with Hugging Face datasets are recognized and explained:
 
 ```objectscript
-USER> write ##class(HF.Loader).Load("stanfordnlp/imdb", "train", "Demo.Imdb", 10), !
-{"status": "error", "code": "VALIDATION", "message": "table Demo.Imdb already exists; drop it first (DROP TABLE Demo.Imdb)"}
+USER> write ##class(HF.Loader).Load("imdb", "train", "Demo.Short", 10), !
+{"status": "error", "code": "DOWNLOAD", "message": "dataset 'imdb' needs its full id in the form owner/name (for example 'stanfordnlp/imdb'); look it up at https://huggingface.co/datasets?search=imdb"}
 
-USER> write ##class(HF.Loader).Load("no-such-user/no-such-dataset", "train", "Demo.Nope", 10), !
-{"status": "error", "code": "DOWNLOAD", "message": "DatasetNotFoundError: Dataset 'no-such-user/no-such-dataset' doesn't exist on the Hub or cannot be accessed."}
+USER> write ##class(HF.Loader).Load("nyu-mll/glue", "validation", "Demo.Glue", 10), !
+{"status": "error", "code": "DOWNLOAD", "message": "dataset 'nyu-mll/glue' has several configurations; pass one as the config argument. Available: ax, cola, mnli, mnli_matched, mnli_mismatched, mrpc, qnli, qqp, rte, sst2, stsb, wnli."}
+
+USER> write ##class(HF.Loader).Load("bigcode/the-stack", "train", "Demo.Gated", 10), !
+{"status": "error", "code": "DOWNLOAD", "message": "dataset 'bigcode/the-stack' is gated: accept its terms at https://huggingface.co/datasets/bigcode/the-stack and set the HF_TOKEN environment variable for the IRIS process"}
 
 USER> write ##class(HF.Loader).Load("stanfordnlp/imdb", "no_such_split", "Demo.Nope", 10), !
-{"status": "error", "code": "DOWNLOAD", "message": "ValueError: Bad split: no_such_split. Available splits: ['train', 'test', 'unsupervised']"}
+{"status": "error", "code": "DOWNLOAD", "message": "split not found in dataset 'stanfordnlp/imdb'. Available splits: train, test, unsupervised."}
+
+USER> write ##class(HF.Loader).Load("no-such-user/no-such-dataset", "train", "Demo.Nope", 10), !
+{"status": "error", "code": "DOWNLOAD", "message": "dataset 'no-such-user/no-such-dataset' was not found on the Hugging Face Hub; check the id (owner/name). If it is private, set the HF_TOKEN environment variable"}
+
+USER> write ##class(HF.Loader).Load("stanfordnlp/imdb", "train", "Demo.Imdb", 10), !
+{"status": "error", "code": "VALIDATION", "message": "table Demo.Imdb already exists; drop it first (DROP TABLE Demo.Imdb)"}
 
 USER> write ##class(HF.Loader).Load("stanfordnlp/imdb", "train", "NoSchema", 10), !
 {"status": "error", "code": "VALIDATION", "message": "invalid target 'NoSchema'; expected schema.table with letters, digits and underscores, starting with a letter"}
@@ -248,6 +290,7 @@ DROP TABLE Demo.BoolQ
 DROP TABLE Demo.Squad
 DROP TABLE Demo.Reviews
 DROP TABLE Demo.Sst2
+DROP TABLE Demo.Mnist
 ```
 
 To start over completely, run `docker compose down`. The container keeps no volumes, so everything is removed.
@@ -268,9 +311,12 @@ To start over completely, run `docker compose down`. The container keeps no volu
 The call never throws. It returns a JSON string:
 
 ```json
-{"status": "ok", "table": "Demo.Imdb", "rows_loaded": 1000, "seconds": 2.41,
- "columns": [{"name": "text", "type": "LONGVARCHAR"}, {"name": "label", "type": "BIGINT"}]}
+{"status": "ok", "table": "Demo.Imdb", "rows_loaded": 1000, "seconds": 3.06,
+ "columns": [{"name": "text", "type": "LONGVARCHAR"}, {"name": "label", "type": "BIGINT"},
+             {"name": "label_name", "type": "VARCHAR(32)"}]}
 ```
+
+When media or binary columns were left out, the result also has `"skipped_columns": [...]`.
 
 Validation, download and database problems come back as JSON too:
 
@@ -281,8 +327,8 @@ Validation, download and database problems come back as JSON too:
 | `code` | Meaning |
 | --- | --- |
 | `VALIDATION` | Bad dataset id, split, target or numeric argument; target table already exists |
-| `DOWNLOAD` | Dataset or split not found, network failure, authentication failure |
-| `EMPTY` | The split returned no rows |
+| `DOWNLOAD` | Dataset or split not found, missing `owner/` in the id, missing configuration, gated or private dataset without a token, network failure |
+| `EMPTY` | The split returned no rows, or it only has columns that cannot be stored (e.g. only images) |
 | `DATABASE` | IRIS rejected a statement |
 | `SCHEMA` / `VALUE_TOO_LONG` | A row after the sampled ones does not fit the inferred column type |
 | `INTERNAL` | Anything unexpected |
@@ -302,9 +348,10 @@ Set the `HF_TOKEN` environment variable for the IRIS process. With Docker Compos
 ## How it works
 
 1. **Stream.** The dataset is opened with `streaming=True` and `take(limit)`, so only the shards needed for those rows are read.
-2. **Infer types.** The first 1000 rows are sampled. Integers become `BIGINT`, floats `DOUBLE`, booleans `BIT`, dates `DATE`, timestamps `TIMESTAMP`. For strings, the longest sampled value (with 4× headroom) picks `VARCHAR(n)`, or `LONGVARCHAR` when the text is long. Lists and dictionaries are stored as JSON text. Column names are made SQL-safe (spaces, reserved words, duplicates).
-3. **Insert in batches.** Rows are inserted with a prepared statement; each batch of `batchSize` rows runs in its own transaction.
-4. **Clean failure.** If a batch fails, it is rolled back and the table created by this call is dropped, so a failed load leaves nothing behind.
+2. **Read the metadata.** The dataset's `features` say what each column is. Media columns (`Image`, `Audio`, `Video`, `Pdf`) and raw binary columns are dropped before any row is read (and never decoded). Each `ClassLabel` column gets a companion `<column>_name` text column with the class name.
+3. **Infer types.** The first 1000 rows are sampled. Integers become `BIGINT`, floats `DOUBLE`, booleans `BIT`, dates `DATE`, timestamps `TIMESTAMP`. For strings, the longest sampled value (with 4× headroom) picks `VARCHAR(n)`, or `LONGVARCHAR` when the text is long. Lists and dictionaries are stored as JSON text. Column names are made SQL-safe (accents, spaces, reserved words, duplicates).
+4. **Insert in batches.** Rows are inserted with a prepared statement; each batch of `batchSize` rows runs in its own transaction.
+5. **Clean failure.** If a batch fails, it is rolled back and the table created by this call is dropped, so a failed load leaves nothing behind.
 
 | Value from the dataset | IRIS column |
 | --- | --- |
@@ -316,6 +363,8 @@ Set the `HF_TOKEN` environment variable for the IRIS process. With Docker Compos
 | `str` | `VARCHAR(32…1024)` or `LONGVARCHAR` |
 | `list`, `dict` | `LONGVARCHAR` containing JSON |
 | mixed types, all-`NULL` columns | `LONGVARCHAR` |
+| `ClassLabel` (e.g. `label`) | `BIGINT`, plus a `label_name` text column |
+| `Image`, `Audio`, `Video`, `Pdf`, raw bytes | left out, listed in `skipped_columns` |
 
 ## Benchmark
 
@@ -339,7 +388,7 @@ Both timings include streaming the rows from the Hugging Face Hub. Streaming doe
 - The target table must not exist. Drop it first to reload.
 - Column types come from the first 1000 rows. If a later row does not fit (a string longer than the chosen `VARCHAR(n)`, a text value in an integer column), the load stops with a `VALUE_TOO_LONG` or `SCHEMA` error and the table is dropped.
 - One split per call.
-- Binary columns (images, audio) are not supported.
+- Images, audio, video and other binary columns are not stored. They are left out and listed in `skipped_columns`, and the other columns of the dataset still load.
 - Datasets that depend on custom loading scripts are not supported by recent versions of the `datasets` library.
 - No `VECTOR` column for embeddings yet.
 
@@ -352,7 +401,7 @@ pip install pytest
 pytest
 ```
 
-If the `datasets` package is installed, `tests/test_streaming_local.py` also checks streaming and `take()` against a local JSONL file (no network needed).
+If the `datasets` package is installed, `tests/test_streaming_local.py` also runs the real library against local files (no network needed): streaming and `take()`, class-label names, and an `Image` column that must be dropped without being decoded.
 
 ```
 iris-hf-stream/

@@ -148,3 +148,23 @@ def test_iris_reserved_words_get_a_suffix():
         "value",
         "first_",
     ]
+
+
+def test_accents_are_removed_from_column_names():
+    used = set()
+    names = ["preço", "Ação", "naïve café", "日本"]
+    assert [sanitize_identifier(n, used) for n in names] == ["preco", "Acao", "naive_cafe", "col"]
+
+
+def test_binary_only_columns_are_left_out():
+    skipped = []
+    columns = infer_schema([{"img": b"\x89PNG", "n": 1}, {"img": None, "n": 2}], skipped)
+    assert [c.name for c in columns] == ["n"]
+    assert skipped == ["img"]
+
+
+def test_bytes_in_a_text_column_is_a_schema_error():
+    rows = [{"x": "text"}, {"x": b"\x00"}]
+    c = col(rows, "x")  # mixed sample -> LONGVARCHAR
+    with pytest.raises(SchemaMismatchError):
+        encode_value(c, b"\x00")
