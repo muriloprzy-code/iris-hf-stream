@@ -3,12 +3,15 @@
   <Document name="iris-hf-stream.ZPM">
     <Module>
       <Name>iris-hf-stream</Name>
-      <Version>0.2.0</Version>
+      <Version>0.3.0</Version>
       <Description>Load a Hugging Face dataset into an InterSystems IRIS table with one line of SQL or ObjectScript. Streams only the rows you ask for, inserts them in batches, and can add VECTOR embeddings for semantic search.</Description>
       <Keywords>huggingface dataset streaming embedded python sql vector embeddings ai</Keywords>
       <Packaging>module</Packaging>
       <SourcesRoot>src</SourcesRoot>
       <Resource Name="HF.PKG"/>
+      <!-- One-click web page and REST API at /hfstream/: created by HF.REST.CreateWebApp,
+           the same method the Docker build uses. -->
+      <Invoke Class="HF.REST" Method="CreateWebApp" Phase="Activate" When="After" CheckStatus="true"/>
       <!-- The embedded Python package. Its dependencies (requirements.txt) must be installed
            with irispython and pip, targeting the install-dir/mgr/python directory
            (see the README and the Dockerfile for the exact command). -->

@@ -14,7 +14,7 @@ from .loader import (  # noqa: E402
     search_datasets,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __all__ = [
     "load_to_iris",
     "dataset_info",

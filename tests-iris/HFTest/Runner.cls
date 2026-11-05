@@ -4,6 +4,9 @@
 Class HFTest.Runner
 {
 
+/// Test classes, run in this order.
+Parameter CASES = "HFTest.LoaderTest,HFTest.RESTTest";
+
 /// Folder that holds this suite (tests-iris/HFTest) inside the image.
 Parameter ROOT = "/opt/irisapp/tests-iris/HFTest/";
 
@@ -12,11 +15,15 @@ ClassMethod Run() As %Status
 	// The classes are already compiled into the image: run them without loading files.
 	// %UnitTest still wants a valid root directory for the suite.
 	Set ^UnitTestRoot = ##class(%File).NormalizeDirectory(##class(%File).ParentDirectoryName(..#ROOT))
-	Set sc = ##class(%UnitTest.Manager).DebugRunTestCase("HFTest", "HFTest.LoaderTest", "/noload/nodelete")
-	Set failed = 0, total = 0
+	Set sc = $$$OK, failed = 0, total = 0
 	Write !
-	Set index = $Order(^UnitTest.Result(""), -1)
-	If index '= "" {
+	For c = 1:1:$Length(..#CASES, ",") {
+		Set sc1 = ##class(%UnitTest.Manager).DebugRunTestCase("HFTest", $Piece(..#CASES, ",", c), "/noload/nodelete")
+		Set:$$$ISERR(sc1) sc = sc1
+		Write !
+		// Each run writes a new ^UnitTest.Result index: report the latest one.
+		Set index = $Order(^UnitTest.Result(""), -1)
+		Continue:index=""
 		Set suite = ""
 		For {
 			Set suite = $Order(^UnitTest.Result(index, suite)) Quit:suite=""

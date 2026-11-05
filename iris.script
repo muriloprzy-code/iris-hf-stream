@@ -4,8 +4,11 @@ zn "%SYS"
 do ##class(Security.Users).UnExpireUserPasswords("*")
 
 zn "USER"
-// Compile the HF package (HF.Loader, HF.Benchmark).
+// Compile the HF package (HF.Loader, HF.REST, HF.Benchmark).
 set sc = $system.OBJ.LoadDir("/opt/irisapp/src", "ck", , 1)
+if 'sc { do $system.Status.DisplayError(sc) do $system.Process.Terminate($job, 1) }
+// One-click web page and REST API at /hfstream/ (password authentication).
+set sc = ##class(HF.REST).CreateWebApp("USER")
 if 'sc { do $system.Status.DisplayError(sc) do $system.Process.Terminate($job, 1) }
 // ObjectScript unit tests (not part of the IPM module): do ##class(HFTest.Runner).Run()
 set sc = $system.OBJ.LoadDir("/opt/irisapp/tests-iris", "ck", , 1)

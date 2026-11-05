@@ -4,7 +4,7 @@
 
 [![tests](https://github.com/muriloprzy-code/iris-hf-stream/actions/workflows/tests.yml/badge.svg)](https://github.com/muriloprzy-code/iris-hf-stream/actions/workflows/tests.yml)
 
-Load a [Hugging Face](https://huggingface.co/datasets) dataset into an InterSystems IRIS table with **one line**, from SQL or from ObjectScript. It streams the dataset, so it only downloads the rows you ask for, and it inserts them in batches. It can also add a `VECTOR` column of text embeddings, so the data is ready for semantic search in IRIS SQL.
+Load a [Hugging Face](https://huggingface.co/datasets) dataset into an InterSystems IRIS table with **one click** in a web page served by IRIS, or with **one line** of SQL or ObjectScript. It streams the dataset, so it only downloads the rows you ask for, and it inserts them in batches. It can also add a `VECTOR` column of text embeddings, so the data is ready for semantic search in IRIS SQL.
 
 ```sql
 CALL HF.LoadDataset('stanfordnlp/imdb', 'train', 'Demo.Imdb', 1000)
@@ -25,6 +25,7 @@ This project implements the community idea **DPI-I-543 – "Load datasets from H
 
 **Features at a glance**
 
+- One click in the web page at `/hfstream/`: search the Hub, preview the columns, load with live progress, then search by meaning.
 - One call from ObjectScript or SQL (`CALL`, Management Portal, JDBC, ODBC); always returns JSON, never throws.
 - Streaming download (`limit` rows only), batched inserts, clean rollback on failure.
 - Column types inferred from a sample, widened automatically when a later row does not fit.
@@ -33,7 +34,7 @@ This project implements the community idea **DPI-I-543 – "Load datasets from H
 - Optional `VECTOR` embeddings plus an `HF.Embed()` SQL function for semantic search.
 - `Search` and `Info` to find datasets and see their splits and columns before loading.
 - Actionable error messages for the usual Hugging Face mistakes (missing `owner/`, missing config, gated dataset).
-- Tested: 103 Python tests (SQLite stand-in) and 7 ObjectScript tests inside IRIS, run by GitHub Actions on every push.
+- Tested: 103 Python tests (SQLite stand-in) and 12 ObjectScript tests inside IRIS (loader and web API), run by GitHub Actions on every push.
 
 ## Why another loader
 
@@ -45,7 +46,7 @@ This project implements the community idea **DPI-I-543 – "Load datasets from H
 | Reloading | Drop the table by hand | `mode`: `replace` (new table swapped in at the end) or `append` |
 | Images / audio | Stored as garbage text, or the load fails | Left out before reading, listed in `skipped_columns` |
 | AI use | Export to another tool | `VECTOR` embeddings in the same load, searched with `VECTOR_COSINE` |
-| Interface | ObjectScript class | ObjectScript class **and** SQL stored procedure (usable from the Management Portal, JDBC, ODBC) |
+| Interface | ObjectScript class | One-click web page, ObjectScript class **and** SQL stored procedure (usable from the Management Portal, JDBC, ODBC) |
 | Dependencies | Unpinned | Pinned in `requirements.txt` |
 
 ## Quick start
@@ -58,7 +59,9 @@ cd iris-hf-stream
 docker compose up -d --build
 ```
 
-Open an IRIS terminal in the `USER` namespace:
+Then open **<http://localhost:52773/hfstream/>** and log in with an IRIS user (`_SYSTEM` or `SuperUser`, password `SYS` in this development image). Search for a dataset, click it, click **Load into IRIS**.
+
+Or open an IRIS terminal in the `USER` namespace:
 
 ```bash
 docker compose exec iris iris session IRIS -U USER
@@ -88,7 +91,11 @@ The Python dependencies are not installed by the module; install them once with 
 irispython -m pip install --target <install-dir>/mgr/python -r requirements.txt
 ```
 
+The module also creates the `/hfstream` web application in the namespace it is installed in.
+
 Outside Docker (for example IRIS on Windows), see [Troubleshooting](#troubleshooting-outside-docker).
+
+> **Port already in use?** If an IRIS installed on the host already listens on 52773 (or 1972), the browser reaches that one instead of the container and `/hfstream/` answers *Not Found*. Pick other host ports: `IRIS_WEB_PORT=52780 IRIS_PORT=1980 docker compose up -d`, then open <http://localhost:52780/hfstream/>.
 
 ## Demo walkthrough
 
@@ -107,7 +114,20 @@ The build installs the Python dependencies (`datasets`, `model2vec`, ...) into I
 
 > The compose file starts IRIS with `/iris-main` instead of the image's default entrypoint, because the default entrypoint's post-start hook fails on the 2026.1 image and shuts IRIS down. The `USER` namespace that hook would create already exists.
 
-### 2. Find a dataset and preview it
+### 2. Or just click: the web page
+
+Open <http://localhost:52773/hfstream/> and log in with an IRIS user (`_SYSTEM` / `SYS` in this image). The page is served by IRIS itself (class `HF.REST`), with no other software to install.
+
+1. **Find a dataset.** Type a word and press *Search*: the Hub's datasets, most downloaded first.
+2. **Click one.** The page reads a sample and fills in the rest: the splits with their sizes, the columns and SQL types the table will get, and a table name (`Demo.RottenTomatoes`). Change anything you like: the number of rows, *replace* or *append* if the table exists, and a text column to embed.
+3. **Click *Load into IRIS*.** The load runs in a background job, so even a long one is not cut by the web server timeout. The page shows the seconds and the rows written so far, then the first rows of the new table and **the same load as one line of SQL**, ready to copy.
+4. **Search by meaning.** If you chose a column to embed, type a sentence: the page shows the closest rows with their cosine score, and the SQL it ran.
+
+![The iris-hf-stream web page: search, preview, load and semantic search](docs/web-ui.jpg)
+
+Everything the page does goes through the same `HF.Loader` methods as the next steps, so the result is the same as typing the commands. The rest of this walkthrough uses the terminal and SQL.
+
+### 3. Find a dataset and preview it
 
 `Search` asks the Hub for datasets matching a word, most downloaded first:
 
@@ -139,7 +159,7 @@ The movie reviews are long (up to about 6000 characters), so `text` becomes `LON
 
 `label_name` is not in the original data. The dataset's metadata says `label` is a class label with the names `neg` and `pos`, so the loader adds a readable text column next to the number. This happens for every `ClassLabel` column, so you can query `WHERE label_name = 'pos'` instead of remembering what `1` means.
 
-### 3. Load 1000 rows with one line of ObjectScript
+### 4. Load 1000 rows with one line of ObjectScript
 
 ```objectscript
 USER> write ##class(HF.Loader).Load("stanfordnlp/imdb", "train", "Demo.Imdb", 1000), !
@@ -170,7 +190,7 @@ SELECT TOP 3 label, label_name, SUBSTRING(text, 1, 50) AS preview FROM Demo.Imdb
 
 > **`limit` takes the first rows in file order.** The IMDB `train` split is sorted by label, so the first 1000 rows are all negative reviews (`label = 0`). Use `limit = 0` to load the whole split, or pick a split or dataset that is already shuffled.
 
-### 4. Load a whole split from SQL
+### 5. Load a whole split from SQL
 
 The same loader is exposed as a SQL stored procedure. That means it can be called from the Management Portal (**System Explorer → SQL**, namespace `USER`, user `SuperUser` / password `SYS`), or from any JDBC or ODBC client connected to port 1972:
 
@@ -188,7 +208,7 @@ FROM Demo.ImdbFull GROUP BY %EXACT(label_name)
 
 With `limit = 0`, all 25,000 reviews were loaded in about 8 seconds, download included (same test machine as the [Benchmark](#benchmark)). To keep a default from SQL, pass `''` (for example `CALL HF.LoadDataset('stanfordnlp/imdb', '', 'Demo.T', 100)` uses the `train` split).
 
-### 5. Different kinds of data
+### 6. Different kinds of data
 
 **Booleans become `BIT`.** In BoolQ, each question has a yes/no answer:
 
@@ -285,7 +305,7 @@ If you forget the configuration, the error message lists the available ones (see
 
 Missing values (`None` in Python) are stored as SQL `NULL` in every column type, and empty strings stay empty strings.
 
-### 6. Semantic search with a VECTOR column
+### 7. Semantic search with a VECTOR column
 
 Add `{"embed": "text"}` to the options and every row also gets an embedding of its `text`, stored in a `VECTOR(FLOAT, 256)` column. The embeddings come from [model2vec](https://github.com/MinishLab/model2vec) (`minishlab/potion-base-8M` by default). It is a static embedding model that needs no GPU and no PyTorch, and it encodes thousands of texts per second, so it keeps up with a streaming load.
 
@@ -328,7 +348,7 @@ GROUP BY %EXACT(label_name)
 
 Any other [model2vec model](https://huggingface.co/models?library=model2vec) can be used with `{"embed": "text", "embed_model": "<id>"}`; pass the same id to `HF.Embed(text, '<id>')` and use its dimension in `TO_VECTOR`.
 
-### 7. Reload, append, every split, some columns
+### 8. Reload, append, every split, some columns
 
 By default a load refuses an existing table. The `mode` option changes that:
 
@@ -373,7 +393,7 @@ USER> write ##class(HF.Loader).Load("rajpurkar/squad", "train", "Demo.SquadQ", 2
 
 If a later row does not fit the type chosen from the sample, the column is widened with `ALTER TABLE` and the load goes on. The result says what changed, for example `"widened_columns": [{"name": "text", "from": "VARCHAR(32)", "to": "VARCHAR(1048576)"}, {"name": "n", "from": "BIGINT", "to": "DOUBLE"}]`.
 
-### 8. Errors come back as JSON, never as exceptions
+### 9. Errors come back as JSON, never as exceptions
 
 `Load` never throws, so it is safe to call from SQL, from a production or from a scheduled task. Every problem is reported with a `code` and a message that says what to do next. The usual mistakes with Hugging Face datasets are recognized and explained:
 
@@ -402,7 +422,7 @@ USER> write ##class(HF.Loader).Load("stanfordnlp/imdb", "train", "NoSchema", 10)
 
 Existing tables are never overwritten. If a load fails halfway (for example a later row that does not fit the inferred type), the current batch is rolled back and the table created by that call is dropped, so nothing half-filled is left behind.
 
-### 9. Measure batching
+### 10. Measure batching
 
 ```objectscript
 USER> do ##class(HF.Benchmark).Run("stanfordnlp/imdb", "train", 5000, 1000)
@@ -413,7 +433,7 @@ Bench.Batched  batchSize=1000  status=ok  elapsed=2.99s
 
 See [Benchmark](#benchmark) for the numbers across 57 runs and how to read them.
 
-### 10. Clean up
+### 11. Clean up
 
 ```sql
 DROP TABLE Demo.Imdb
@@ -427,6 +447,7 @@ DROP TABLE Demo.ImdbVec
 DROP TABLE Demo.Rotten
 DROP TABLE Demo.RottenAll
 DROP TABLE Demo.SquadQ
+DROP TABLE Demo.RottenTomatoes   -- if you loaded it from the web page
 ```
 
 To start over completely, run `docker compose down`. The container keeps no volumes, so everything is removed.
@@ -491,6 +512,26 @@ Validation, download and database problems come back as JSON too:
 | `HF.Loader.Info(dataset, split, config, sampleSize, options)` | `HF.DatasetInfo(...)` | Columns and types `Load` would create, plus split sizes from the Hub. Writes nothing |
 | `HF.Loader.Search(term, limit)` | `HF.SearchDatasets(...)` | Datasets on the Hub matching `term`, most downloaded first |
 | `HF.Loader.Embed(text, model)` | `HF.Embed(...)` | The embedding of `text` as `'[x,y,...]'`, for `TO_VECTOR` in a query. Raises an error on failure, so a search never silently matches nothing |
+
+### Web page and REST API
+
+The `/hfstream` web application (class `HF.REST`) serves the page and a small JSON API. Every route needs an IRIS user (HTTP Basic authentication; an anonymous request gets `401` and the browser asks for a login). Cross-origin requests are not answered, and a load can only be started with a JSON body.
+
+| Route | What it does |
+| --- | --- |
+| `GET /hfstream/` | The page |
+| `GET /hfstream/api/search?term=&limit=` | `HF.Loader.Search` |
+| `GET /hfstream/api/info?dataset=&split=&config=` | `HF.Loader.Info` (sample of 200 rows) |
+| `POST /hfstream/api/load` | Starts `HF.Loader.Load` in a background job. Body: `{"dataset", "split", "target", "limit", "config", "options"}`. Returns `{"job": id}` |
+| `GET /hfstream/api/load/{id}` | `{"state": "running", "seconds", "rows_so_far"}`, then `{"state": "done", "result": {...}}` with the loader's JSON result |
+| `GET /hfstream/api/rows?table=&n=` | First rows of a table (long text cut to 300 characters, `VECTOR` columns left out) |
+| `GET /hfstream/api/similar?table=&column=&q=&n=` | The rows closest in meaning to `q`, using a `VECTOR` column, with the score and the SQL |
+
+```bash
+curl -u _SYSTEM:SYS -H "Content-Type: application/json"   -d '{"dataset": "cornell-movie-review-data/rotten_tomatoes", "split": "train", "target": "Demo.Rotten", "limit": 100}'   http://localhost:52773/hfstream/api/load
+```
+
+To create the web application in another namespace: `do ##class(HF.REST).CreateWebApp("MYNS")`.
 
 ### Private or gated datasets
 
@@ -591,7 +632,7 @@ pytest
 
 With `datasets` installed, `tests/test_streaming_local.py` also runs the real library against local files (no network needed): streaming and `take()`, `split = "all"`, column selection, class-label names, and an `Image` column that must be dropped without being decoded.
 
-The public API is tested inside IRIS by `%UnitTest` classes in `tests-iris/` (they read small datasets from the Hub):
+The public API and the web API are tested inside IRIS by `%UnitTest` classes in `tests-iris/` (they read small datasets from the Hub, and call the web API through the IRIS web server):
 
 ```bash
 docker compose exec iris iris session IRIS -U USER "##class(HFTest.Runner).Run()"
@@ -602,6 +643,7 @@ GitHub Actions runs both on every push (`.github/workflows/tests.yml`): pytest, 
 ```
 iris-hf-stream/
 ├── src/HF/Loader.cls        # public API: Load, Info, Search, Embed (+ SQL procedures)
+├── src/HF/REST.cls          # one-click web page and REST API at /hfstream/
 ├── src/HF/Benchmark.cls     # row-by-row vs batched comparison
 ├── python/hfstream/         # streaming, type inference, batched inserts, embeddings
 ├── tests/                   # pytest (SQLite stand-in for IRIS)

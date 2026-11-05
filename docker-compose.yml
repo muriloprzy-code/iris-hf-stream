@@ -3,8 +3,9 @@ services:
     build: .
     container_name: iris-hf-stream
     ports:
-      - "1972:1972"     # super server (JDBC / ODBC)
-      - "52773:52773"   # web server / Management Portal
+      # Host ports. Change them with IRIS_PORT / IRIS_WEB_PORT if a local IRIS already uses them.
+      - "${IRIS_PORT:-1972}:1972"           # super server (JDBC / ODBC)
+      - "${IRIS_WEB_PORT:-52773}:52773"     # web server: Management Portal and the /hfstream/ page
     environment:
       # Optional: access token for private or gated Hugging Face datasets.
       - HF_TOKEN=${HF_TOKEN:-}
