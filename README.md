@@ -1,6 +1,6 @@
 # iris-hf-stream
 
-![iris-hf-stream: Hugging Face datasets to InterSystems IRIS tables, in one line](docs/cover.png)
+![iris-hf-stream: Hugging Face datasets to InterSystems IRIS tables, in one line](https://raw.githubusercontent.com/muriloprzy-code/iris-hf-stream/main/docs/cover.png)
 
 [![tests](https://github.com/muriloprzy-code/iris-hf-stream/actions/workflows/tests.yml/badge.svg)](https://github.com/muriloprzy-code/iris-hf-stream/actions/workflows/tests.yml)
 
@@ -123,7 +123,7 @@ Open <http://localhost:52773/hfstream/> and log in with an IRIS user (`_SYSTEM` 
 3. **Click *Load into IRIS*.** The load runs in a background job, so even a long one is not cut by the web server timeout. The page shows the seconds and the rows written so far, then the first rows of the new table and **the same load as one line of SQL**, ready to copy.
 4. **Search by meaning.** If you chose a column to embed, type a sentence: the page shows the closest rows with their cosine score, and the SQL it ran.
 
-![The iris-hf-stream web page: search, preview, load and semantic search](docs/web-ui.jpg)
+![The iris-hf-stream web page: search, preview, load and semantic search](https://raw.githubusercontent.com/muriloprzy-code/iris-hf-stream/main/docs/web-ui.jpg)
 
 Everything the page does goes through the same `HF.Loader` methods as the next steps, so the result is the same as typing the commands. The rest of this walkthrough uses the terminal and SQL.
 
