@@ -528,7 +528,9 @@ The `/hfstream` web application (class `HF.REST`) serves the page and a small JS
 | `GET /hfstream/api/similar?table=&column=&q=&n=` | The rows closest in meaning to `q`, using a `VECTOR` column, with the score and the SQL |
 
 ```bash
-curl -u _SYSTEM:SYS -H "Content-Type: application/json"   -d '{"dataset": "cornell-movie-review-data/rotten_tomatoes", "split": "train", "target": "Demo.Rotten", "limit": 100}'   http://localhost:52773/hfstream/api/load
+curl -u _SYSTEM:SYS -H "Content-Type: application/json" \
+  -d '{"dataset": "cornell-movie-review-data/rotten_tomatoes", "split": "train", "target": "Demo.Rotten", "limit": 100}' \
+  http://localhost:52773/hfstream/api/load
 ```
 
 To create the web application in another namespace: `do ##class(HF.REST).CreateWebApp("MYNS")`.
